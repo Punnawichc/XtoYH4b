@@ -1,3 +1,24 @@
+#######################################################
+
+# This script identifies and visualizes the bin with the highest signal significance 
+# for each signal multiple significance.csv files. 
+# For .csv output file, tt combines signal significance values with statistical uncertainties 
+# and selects the row with the highest significance (Short_Significance) from each file. 
+# For plots, it shows both significance metrics per selected bin. 
+# The script works with both standard and optimized (-New flag) WP combination definition.
+
+# command to run this scripts:
+# python3 highest_significance.py -s significance*.csv -u Stat_Unc.csv -New [True/False]
+# please check input file names in running command before running
+# please check "tagger" in the code below before runnings
+# please be careful at line ### ,it will effect the mass column
+
+# Created by Punnawich Chokeprasert, punnawich.chokeprasert@cern.ch
+# 27 Mar 2025
+
+#######################################################
+
+
 import ROOT
 import os
 import argparse
@@ -5,10 +26,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import mplhep as hep
 
-# python3 highest_significance.py -s significance*.csv -u Stat_Unc.csv -New [True/False]
-# please check input file names in running command before running
-# please check "tagger" in the code below before runnings
-# please be careful at line ### ,it will effect the mass column
 
 if __name__ == "__main__":
 
