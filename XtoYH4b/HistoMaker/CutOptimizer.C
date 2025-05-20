@@ -8,9 +8,10 @@
 #include<fstream>
 #include<string>
 #include <bits/stdc++.h>
+#include <onnxruntime_cxx_api.h>
 
-string input_path = "/data/dust/user/chatterj/XToYHTo4b/SmallNtuples/Analysis_NTuples/";
-string output_path = "/afs/desy.de/user/c/chokepra/private/XtoYH4b/CMSSW_14_2_1/src/XtoYH4b/HistoMaker/output/";
+string input_path = "/data/dust/group/cms/higgs-bb-desy/XToYHTo4b/SmallNtuples/Analysis_NTuples/";
+string output_path = "/data/dust/user/chokepra/XtoYH4b/HistoMaker/output_adding_dnn_score/";
 
 void initializeJetHistograms(vector<TH1F*>& histograms, const string& prefix, vector<tuple<string, string, tuple<int, double, double>>> histinfo, int njetmax) {
     
@@ -53,10 +54,26 @@ int main(int argc, char *argv[])
  year = string(argv[4]);
  cout<<"Running with options: isDATA? "<<isDATA<<" Signal? "<<isSignal<<endl;
  cout<<"Running on file : " << argv[3] << std::endl;
+
+ Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "XtoYH4b");
+ Ort::SessionOptions session_options;
+ Ort::Session session(env, "/afs/desy.de/user/c/chokepra/private/XtoYH4b/CMSSW_14_2_1/src/XtoYH4b/DNN/model.onnx", session_options);
+ Ort::AllocatorWithDefaultOptions allocator;
+
+// const char* input_name = session.GetInputName(0, allocator);
+// const char* output_name = session.GetOutputName(0, allocator);
  
+ Ort::AllocatedStringPtr input_name_ptr = session.GetInputNameAllocated(0, allocator);
+ const char* input_name = input_name_ptr.get();
+
+ Ort::AllocatedStringPtr output_name_ptr = session.GetOutputNameAllocated(0, allocator);
+ const char* output_name = output_name_ptr.get();
+
+ std::vector<int64_t> input_shape{1, 16};
+
 //  input_path += year+"/v1/"; //2022
  input_path += year+"/"; //2023
- output_path += year+"/";
+ output_path += year;
  
  if(isSignal){ input_path += "SIGNAL/" ; }
  
@@ -80,7 +97,8 @@ int main(int argc, char *argv[])
  char file_name[1000]; 
  sprintf(file_name,"%s/Histogram_%s",output_path.c_str(),argv[3]);
  TFile* final_file = TFile::Open(file_name, "RECREATE");  
- TTree *JetTree = new TTree("JetTree", "Tree storing JetAK4_btag_PNetB_WP");
+ TTree *JetTree = new TTree("JetTree", "Tree storing JetAK4_btag_WP");
+ TTree *DNNFeatureTree = new TTree("DNNFeatureTree", "Tree storing DNN_features");
 
  TFile *file = TFile::Open(inputFile,"read");
  TTree *tree = (TTree*)file->Get("Tout");
@@ -156,7 +174,21 @@ int main(int argc, char *argv[])
     JetTree->Branch(Form("b_tag_RobustParTAK4B_pass_%d_XXT", i+1), &b_tag_RobustParTAK4B_pass_XXT[i], Form("b_tag_RobustParTAK4B_pass_%d_XXT/O", i+1));
    }
 
-   
+   float dnn_score;
+   JetTree->Branch("DNN_score", &dnn_score);
+
+   std::vector<float> jetAK4_pt(njetmax);
+   std::vector<float> jetAK4_eta(njetmax);
+   std::vector<float> jetAK4_phi(njetmax);
+   std::vector<float> jetAK4_mass(njetmax);
+
+   for (int i = 0; i < njetmax; i++) {
+	DNNFeatureTree->Branch(Form("jetAK4_pt_%d", i+1), &jetAK4_pt[i]);
+    DNNFeatureTree->Branch(Form("jetAK4_eta_%d", i+1), &jetAK4_eta[i]);
+    DNNFeatureTree->Branch(Form("jetAK4_phi_%d", i+1), &jetAK4_phi[i]);
+    DNNFeatureTree->Branch(Form("jetAK4_mass_%d", i+1), &jetAK4_mass[i]);
+   }
+
    //// Event loop ////
    std::cout <<"Entries: "<<tree->GetEntries()<< std::endl;  
    
@@ -234,9 +266,68 @@ int main(int argc, char *argv[])
 	   b_tag_RobustParTAK4B_pass_XT[ijet]  = (JetAK4_btag_RobustParTAK4B_WP[ijet] >= 4);
 	   b_tag_RobustParTAK4B_pass_XXT[ijet] = (JetAK4_btag_RobustParTAK4B_WP[ijet] >= 5);
 
+       jetAK4_pt[ijet]   = JetAK4_pt[ijet];
+       jetAK4_eta[ijet]  = JetAK4_eta[ijet];
+       jetAK4_phi[ijet]  = JetAK4_phi[ijet];
+       jetAK4_mass[ijet] = JetAK4_mass[ijet];
+
    }
 
+    // Prepare input tensor
+    std::vector<float> input_tensor_values;
+
+    // Append pt, eta, phi, mass of the first 4 jets
+    for (int i = 0; i < 4; ++i) {
+        input_tensor_values.push_back(JetAK4_pt[i]);
+    }
+    for (int i = 0; i < 4; ++i) {
+        input_tensor_values.push_back(JetAK4_eta[i]);
+    }
+    for (int i = 0; i < 4; ++i) {
+        input_tensor_values.push_back(JetAK4_phi[i]);
+    }
+    for (int i = 0; i < 4; ++i) {
+        input_tensor_values.push_back(JetAK4_mass[i]);
+    }
+
+    std::vector<float> scaler_mean = {
+        113.5630, 112.0937, 106.3473, 110.2283,
+        0.0041, 0.0057, 0.0195, 0.0009,
+        0.0078, 0.0039, -0.0165, 0.0057,
+        13.6675, 14.2124, 14.4676, 14.2592
+    };
+    
+    std::vector<float> scaler_std = {
+        65.3103, 67.5320, 75.5511, 77.3119,
+        1.0533, 1.1009, 1.3459, 1.2973,
+        1.8219, 1.8181, 1.8219, 1.8116,
+        7.8249, 8.2738, 8.9954, 8.5319
+    };    
+    
+    for (size_t i = 0; i < input_tensor_values.size(); ++i) {
+        input_tensor_values[i] = (input_tensor_values[i] - scaler_mean[i]) / scaler_std[i];
+    }
+
+    // Create ONNX tensor
+    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info, input_tensor_values.data(), input_tensor_values.size(), input_shape.data(), input_shape.size());
+
+    // Prepare input/output names
+    const char* input_names[] = {input_name};
+    const char* output_names[] = {output_name};
+
+    // Run inference
+    auto output_tensors = session.Run(Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+
+    // Extract output
+    float* output_data = output_tensors[0].GetTensorMutableData<float>();
+    float score = output_data[0];
+    dnn_score = score;
+
+    // std::cout << "DNN Score = " << score << std::endl;
+
    JetTree->Fill();
+   DNNFeatureTree->Fill();
    
   
    }//event loop
