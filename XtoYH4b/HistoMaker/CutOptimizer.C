@@ -290,6 +290,7 @@ int main(int argc, char *argv[])
         input_tensor_values.push_back(JetAK4_mass[i]);
     }
 
+    // each feature's mean from training dataset
     std::vector<float> scaler_mean = {
         113.5630, 112.0937, 106.3473, 110.2283,
         0.0041, 0.0057, 0.0195, 0.0009,
@@ -297,6 +298,7 @@ int main(int argc, char *argv[])
         13.6675, 14.2124, 14.4676, 14.2592
     };
     
+    // each feature's standard deviation from training dataset
     std::vector<float> scaler_std = {
         65.3103, 67.5320, 75.5511, 77.3119,
         1.0533, 1.1009, 1.3459, 1.2973,
@@ -304,6 +306,7 @@ int main(int argc, char *argv[])
         7.8249, 8.2738, 8.9954, 8.5319
     };    
     
+    // Standardization
     for (size_t i = 0; i < input_tensor_values.size(); ++i) {
         input_tensor_values[i] = (input_tensor_values[i] - scaler_mean[i]) / scaler_std[i];
     }
